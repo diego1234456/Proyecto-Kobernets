@@ -1,4 +1,4 @@
-# Proyecto Kubernetes 202630 — Gestor de Jobs desde línea de comandos
+Proyecto Kubernetes 202630 — Jobs parametrizados desde línea de comandos
 
 Herramienta de consola en Python que lanza, monitorea y limpia **Jobs de Kubernetes** parametrizados. En vez de editar un YAML por cada ejecución, el usuario elige en un menú el **lenguaje**, la **tarea** y la **complejidad**, y el programa crea el `Job` con el cliente oficial de Kubernetes para Python (sin invocar `kubectl`).
 
