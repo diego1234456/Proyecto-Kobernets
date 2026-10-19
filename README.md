@@ -1,10 +1,9 @@
-Proyecto Kubernetes 202630 — Jobs parametrizados desde línea de comandos
+# Proyecto Kubernetes 202630 — Gestor de Jobs desde línea de comandos
 
 Herramienta de consola en Python que lanza, monitorea y limpia **Jobs de Kubernetes** parametrizados. En vez de editar un YAML por cada ejecución, el usuario elige en un menú el **lenguaje**, la **tarea** y la **complejidad**, y el programa crea el `Job` con el cliente oficial de Kubernetes para Python (sin invocar `kubectl`).
 
-- **Integrantes:** `<Juan Diego Alvarez>`, `<Jesús Marquéz>`, `<Sebastián Salgado>`
-- **Video de demostración:** `<LINK DE YOUTUBE>`
-- **Entorno:** Minikube + Python 3 + librería `kubernetes`
+- **Integrantes:** `<NOMBRE 1>`, `<NOMBRE 2>`, `<NOMBRE 3>`
+- **Entorno:** Minikube (runtime containerd) + Python 3 + librería `kubernetes`
 
 ---
 
@@ -28,7 +27,7 @@ gestor_jobs.py -> Job de Kubernetes -> Pod -> contenedor con argumentos -> logs
 | `imagenes/` | Imágenes de Python, Java y C. Reciben `<tarea> <N>`, escriben logs en stdout y cierran con un JSON de una línea. |
 | `catalogo/tareas.json` | Catálogo de lenguajes, imágenes y tareas admitidas. |
 | `k8s/00-namespace.yaml` | Namespace dedicado `estudiantes-202630`. |
-| `scripts/preparar-imagenes.ps1` | Construye las imágenes contra el demonio Docker de Minikube. |
+| `scripts/preparar-imagenes.ps1` | Script del enunciado para construir las imágenes (asume el runtime Docker; ver sección 3). |
 | `entrega/gestor_jobs.py` | **Programa del grupo**: el gestor de Jobs. |
 | `entrega/requirements.txt` | Dependencias de Python. |
 
@@ -39,17 +38,33 @@ Desde la carpeta raíz del proyecto:
 ```powershell
 minikube start
 kubectl apply -f .\k8s\00-namespace.yaml
-.\scripts\preparar-imagenes.ps1
 pip install -r .\entrega\requirements.txt
 ```
 
-Ejecución (sin argumentos):
+### Construcción de las imágenes
+
+Las imágenes se construyen **dentro de Minikube** y los Jobs usan `imagePullPolicy: Never`, de modo que solo se ejecutan imágenes ya cargadas localmente. Nuestro Minikube usa el runtime **containerd**, y con él `minikube docker-env` (que utiliza `scripts/preparar-imagenes.ps1`) falla. Por eso construimos cada imagen con `minikube image build`:
+
+```powershell
+minikube image build -t kubernates-202630-python:1.0 .\imagenes\python
+minikube image build -t kubernates-202630-java:1.0 .\imagenes\java
+minikube image build -t kubernates-202630-c:1.0 .\imagenes\c
+```
+
+Para comprobar que quedaron cargadas:
+
+```powershell
+minikube image ls | findstr kubernates
+```
+
+> **Importante:** hay que reconstruir la imagen cada vez que cambie el programa de un contenedor. Si Kubernetes sigue ejecutando una versión anterior, se elimina la imagen y se vuelve a construir:
+> `minikube image rm kubernates-202630-python:1.0`
+
+### Ejecución
 
 ```powershell
 python .\entrega\gestor_jobs.py
 ```
-
-> **Importante:** `preparar-imagenes.ps1` debe volver a ejecutarse cada vez que cambie el programa de un contenedor. No se usa `minikube image load` para actualizar una imagen, porque no reemplaza un tag ya existente y el clúster seguiría ejecutando la versión anterior.
 
 ## 4. El menú
 
@@ -65,20 +80,25 @@ python .\entrega\gestor_jobs.py
 | Opción | Qué hace |
 | --- | --- |
 | 1 | Pide lenguaje, tarea y complejidad (el menú de complejidad muestra el `N` y la memoria de cada nivel), crea el Job y muestra su nombre, imagen, argumentos y recursos. |
-| 2 | Lista todos los Jobs del namespace con su estado: `pendiente`, `en ejecución`, `completado` o `fallido`. |
+| 2 | Lista todos los Jobs del namespace con su estado: `pendiente`, `en ejecución`, `completado` o `fallido`, con el motivo cuando Kubernetes lo reporta (por ejemplo `fallido (OOMKilled)`). |
 | 3 | Permite elegir un Job y muestra la salida de su contenedor. |
 | 4 | Elimina los Jobs terminados (completados o fallidos) tras pedir confirmación; no toca los que siguen corriendo. |
 | 5 | Sale del programa. |
 
 ## 5. Implementación
 
-### 5.1 Selección: lenguaje, tarea y complejidad
+### 5.1 Clientes de Kubernetes
+
+- `cliente_batch()` carga el kubeconfig y devuelve un `BatchV1Api`, con el que se crean, listan y eliminan Jobs.
+- `cliente_core()` hace lo mismo con `CoreV1Api`, necesario para consultar los **Pods** (estado y logs).
+
+### 5.2 Selección: lenguaje, tarea y complejidad
 
 - `elegir_opcion(titulo, opciones)` es el selector genérico: muestra una lista numerada, valida la entrada y devuelve el texto elegido (o `None` si el usuario escribe `0` o deja la entrada vacía para volver).
 - `seleccionar(catalogo)` lo usa tres veces: lenguaje (claves del catálogo), tarea (`definicion["tasks"]`) y complejidad. Devuelve `(lenguaje, tarea, complejidad, imagen, argumentos, recursos)`.
 - `argumentos` es la lista que recibirá el contenedor, por ejemplo `["fib", "30"]`.
 
-### 5.2 La complejidad fija dos cosas a la vez
+### 5.3 La complejidad fija dos cosas a la vez
 
 La complejidad elegida determina **los recursos** del contenedor (`NIVELES`) y **el tamaño del trabajo**, el parámetro `N` (`TAMANOS`). Por eso un nivel alto no solo tarda más: también reserva más CPU y permite más memoria.
 
@@ -94,11 +114,11 @@ La complejidad elegida determina **los recursos** del contenedor (`NIVELES`) y *
 | `ordenar` | 100000 | 1000000 | 3000000 |
 | `fib` | 25 | 30 | 35 |
 | `matriz` | 60 | 120 | 250 |
-| `<TAREA_ADICIONAL>` | `<N>` | `<N>` | `<N>` |
+| `primos` | 100000 | 500000 | 1000000 |
 
 `requests` es lo que Kubernetes **reserva** para programar el Pod; `limits` es el **tope**. Si el contenedor supera el límite de memoria, Kubernetes lo mata con `OOMKilled`; si supera el de CPU, lo frena (*throttling*).
 
-### 5.3 Creación del Job: del YAML al cliente Python
+### 5.4 Creación del Job: del YAML al cliente Python
 
 `crear_job(nombre, imagen, argumentos, recursos)` arma el equivalente exacto del siguiente YAML con las clases del cliente de Kubernetes:
 
@@ -113,7 +133,7 @@ La complejidad elegida determina **los recursos** del contenedor (`NIVELES`) y *
 
 El nombre del Job se construye en `nombre_job(...)` como `lenguaje-tarea-complejidad-<timestamp>`: solo minúsculas, dígitos y guiones, máximo 63 caracteres. El sufijo de tiempo permite repetir la misma tarea sin chocar con un Job anterior.
 
-### 5.4 Estado de las tareas
+### 5.5 Estado de las tareas
 
 `describir_estado(status)` traduce el `V1JobStatus` a una frase corta. Los contadores valen `None` mientras Kubernetes no los fija, de ahí el `or 0`. El orden de las comprobaciones es:
 
@@ -122,35 +142,42 @@ El nombre del Job se construye en `nombre_job(...)` como `lenguaje-tarea-complej
 3. `failed > 0` → **fallido**
 4. En otro caso → **pendiente**
 
+Esta primera lectura tiene una limitación: `status.active` también cuenta los Pods que todavía no arrancaron (por ejemplo, por una imagen que no está cargada). Para no mostrar "en ejecución" cuando en realidad el Pod está bloqueado, `listar_jobs()` refina el resultado consultando el Pod:
+
+- `estado_pod(nombre)` devuelve la fase del Pod y, si el contenedor está esperando, el motivo (`state.waiting.reason`, por ejemplo `ErrImageNeverPull`). Si la fase es `Pending`, el estado se muestra como `pendiente (<motivo>)`.
+- `motivo_fallo(nombre)` lee `state.terminated.reason` del contenedor. Para un Job fallido muestra la causa, por ejemplo `fallido (OOMKilled)` o `fallido (Error)`.
+
 `listar_jobs()` usa `list_namespaced_job` y devuelve parejas `(nombre, estado)`. `consultar_estado(nombre)` lee un Job concreto con `read_namespaced_job_status`.
 
-### 5.5 Logs
+### 5.6 Logs
 
 Los logs pertenecen al **Pod**, no al Job. Kubernetes etiqueta cada Pod creado por un Job con `job-name=<nombre del Job>`, así que `consultar_logs(nombre)`:
 
 1. busca el Pod con `list_namespaced_pod(label_selector="job-name=<nombre>")`,
-2. toma su nombre y
-3. pide su salida con `read_namespaced_pod_log`.
+2. si no hay Pods, avisa que el Job todavía no tiene ninguno,
+3. si el Pod está en `Pending`, avisa que aún no arranca (no hay logs que leer),
+4. en otro caso pide su salida con `read_namespaced_pod_log`.
 
-### 5.6 Limpieza
+### 5.7 Limpieza
 
 - `jobs_terminados()` devuelve los Jobs con `active == 0` y al menos un Pod correcto o fallido. Un Job en ejecución **nunca** aparece, así que la limpieza no cancela trabajo en curso.
 - `eliminar_job(nombre)` usa `delete_namespaced_job` con `propagation_policy="Background"`, de modo que Kubernetes borra también, en cascada, el Pod que creó el Job.
 - `accion_limpiar()` muestra qué se va a eliminar y pide confirmación (`s/N`) antes de borrar.
 
-### 5.7 Manejo de errores
+### 5.8 Manejo de errores
 
 El bucle del `menu()` captura `ApiException` (errores del API Server: nombre repetido, namespace inexistente, permisos insuficientes) y cualquier otra excepción, para que el menú no se caiga.
 
-## 6. Tarea adicional: `<NOMBRE_TAREA>`
+## 6. Tarea adicional: `primos`
 
-- **Qué hace:** `<descripción de la tarea y del parámetro N>`
-- **Lenguaje elegido:** `<Python / Java / C>`
+- **Qué hace:** cuenta cuántos números primos hay hasta `N`, probando la divisibilidad de cada número hasta su raíz cuadrada (división de prueba). Es una tarea intensiva en CPU y casi sin uso de memoria. `N` lo fija la complejidad: 100000 (baja), 500000 (media) y 1000000 (alta).
+- **Lenguaje elegido:** Python.
+- **Resultado esperado** (sirve para verificarla): hasta 100000 hay 9592 primos (el último es 99991), hasta 500000 hay 41538 y hasta 1000000 hay 78498.
 - **Archivos modificados:**
-  - `imagenes/<lenguaje>/...`: se implementó la tarea respetando el contrato (`<tarea> <N>`, logs en stdout, JSON de una línea).
-  - `catalogo/tareas.json`: se agregó `<NOMBRE_TAREA>` a la lista de tareas del lenguaje.
+  - `imagenes/python/tareas.py`: función `primos(n)` y su registro en el diccionario `TAREAS`. Respeta el contrato: recibe `<tarea> <N>`, escribe logs en stdout y cierra con un JSON de una línea.
+  - `catalogo/tareas.json`: se agregó `primos` a la lista de tareas de Python.
   - `entrega/gestor_jobs.py`: se agregó su fila en `TAMANOS`.
-- Se reconstruyó la imagen con `preparar-imagenes.ps1`.
+- Se reconstruyó la imagen de Python con `minikube image build`.
 
 ## 7. Pruebas y evidencia
 
@@ -165,16 +192,14 @@ kubectl logs -n estudiantes-202630 job/<nombre-del-job>
 | --- | --- | --- |
 | `hola` en Python, Java y C | Completado; el arranque de la JVM se nota frente a Python y C | `<captura>` |
 | `fib` / `matriz` / `ordenar` en niveles baja, media, alta | Mayor tiempo y mayores recursos a mayor nivel | `<captura>` |
-| Job fallido por memoria (`OOMKilled`) | Estado `fallido` y motivo `OOMKilled` en el Pod | `<captura>` |
-| Tarea adicional | Completado con su JSON final | `<captura>` |
+| `primos` en Python (baja, media, alta) | Completado, con 9592 / 41538 / 78498 primos en el JSON final | `<captura>` |
+| Job fallido por memoria | Estado `fallido (OOMKilled)` | `<captura>` |
+| Job con imagen no cargada | Estado `pendiente (ErrImageNeverPull)` en lugar de "en ejecución" | `<captura>` |
 | Limpieza (opción 4) | Elimina terminados, respeta los que corren | `<captura>` |
 
 ## 8. Problemas encontrados y aprendizajes
 
-- `<Ejemplo: ErrImageNeverPull por no recargar la imagen tras un cambio>`
-- `<Ejemplo: diferencia entre requests y limits observada con OOMKilled>`
-- `<Ejemplo: los logs son del Pod y no del Job>`
-
-## 9. Demo
-
-Video de demostración: `<LINK DE YOUTUBE>`
+- **`docker-env` no funciona con containerd.** `scripts/preparar-imagenes.ps1` falló con el error `SSH_AGENT_START: starting an SSH agent on Windows is not yet supported`, porque Minikube usaba el runtime containerd. Lo resolvimos construyendo las imágenes con `minikube image build`.
+- **Un Pod que no arranca cuenta como "activo".** Un Job cuya imagen no estaba cargada aparecía como "en ejecución" aunque su Pod seguía en `Pending`. Para distinguirlo, el gestor consulta el Pod y muestra `pendiente (<motivo>)`.
+- **Los logs son del Pod, no del Job.** Por eso hay que buscar el Pod con la etiqueta `job-name` antes de pedir los logs.
+- `<Aprendizaje adicional del grupo, por ejemplo la diferencia entre requests y limits observada con OOMKilled>`
