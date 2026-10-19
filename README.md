@@ -1,8 +1,8 @@
-# Proyecto Kubernetes 202630 — Gestor de Jobs desde línea de comandos
+Proyecto Kubernetes 202630 — Jobs parametrizados desde línea de comandos
 
 Herramienta de consola en Python que lanza, monitorea y limpia **Jobs de Kubernetes** parametrizados. En vez de editar un YAML por cada ejecución, el usuario elige en un menú el **lenguaje**, la **tarea** y la **complejidad**, y el programa crea el `Job` con el cliente oficial de Kubernetes para Python (sin invocar `kubectl`).
 
-- **Integrantes:** `<NOMBRE 1>`, `<NOMBRE 2>`, `<NOMBRE 3>`
+- **Integrantes:** `<Juan Alvarez>`, `<Sebastian Salgado>`, `<Jesús Marquéz>`
 - **Entorno:** Minikube (runtime containerd) + Python 3 + librería `kubernetes`
 
 ---
@@ -190,16 +190,19 @@ kubectl logs -n estudiantes-202630 job/<nombre-del-job>
 
 | Prueba | Resultado esperado | Evidencia |
 | --- | --- | --- |
-| `hola` en Python, Java y C | Completado; el arranque de la JVM se nota frente a Python y C | `<captura>` |
-| `fib` / `matriz` / `ordenar` en niveles baja, media, alta | Mayor tiempo y mayores recursos a mayor nivel | `<captura>` |
-| `primos` en Python (baja, media, alta) | Completado, con 9592 / 41538 / 78498 primos en el JSON final | `<captura>` |
-| Job fallido por memoria | Estado `fallido (OOMKilled)` | `<captura>` |
-| Job con imagen no cargada | Estado `pendiente (ErrImageNeverPull)` en lugar de "en ejecución" | `<captura>` |
-| Limpieza (opción 4) | Elimina terminados, respeta los que corren | `<captura>` |
+| `hola` en Python, Java y C | Completado; el arranque de la JVM se nota frente a Python y C | `<<img width="494" height="525" alt="image" src="https://github.com/user-attachments/assets/4618a987-0f78-4954-94ce-9e9668fe8883" />
+
+| `fib` / `matriz` / `ordenar` en niveles baja, media, alta | Mayor tiempo y mayores recursos a mayor nivel | `<<img width="373" height="511" alt="image" src="https://github.com/user-attachments/assets/3618f2e4-8656-41ac-8db5-93712c2c4ee9" /> 
+
+| `primos` en Python (baja, media, alta) | Completado, con 9592 / 41538 / 78498 primos en el JSON final | `<<img width="493" height="528" alt="image" src="https://github.com/user-attachments/assets/478c7696-38b5-4a85-9771-d0010317e937" />
+>`    
+
+| Limpieza (opción 4) | Elimina terminados, respeta los que corren | `<<img width="435" height="287" alt="image" src="https://github.com/user-attachments/assets/7ff9a529-86e0-420a-bc97-136f4b3bda3d" />
+>` 
 
 ## 8. Problemas encontrados y aprendizajes
 
-- **`docker-env` no funciona con containerd.** `scripts/preparar-imagenes.ps1` falló con el error `SSH_AGENT_START: starting an SSH agent on Windows is not yet supported`, porque Minikube usaba el runtime containerd. Lo resolvimos construyendo las imágenes con `minikube image build`.
+- **`docker-env` no funciona con containerd.** 
 - **Un Pod que no arranca cuenta como "activo".** Un Job cuya imagen no estaba cargada aparecía como "en ejecución" aunque su Pod seguía en `Pending`. Para distinguirlo, el gestor consulta el Pod y muestra `pendiente (<motivo>)`.
 - **Los logs son del Pod, no del Job.** Por eso hay que buscar el Pod con la etiqueta `job-name` antes de pedir los logs.
-- `<Aprendizaje adicional del grupo, por ejemplo la diferencia entre requests y limits observada con OOMKilled>`
+
